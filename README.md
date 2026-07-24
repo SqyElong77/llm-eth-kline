@@ -10,7 +10,7 @@
 - 选择 1m / 5m / 15m / 30m / 1h / 2h / 4h / 6h / 8h / 12h / 1d / 3d / 1w / 1mo 原K窗口。
 - 可选择是否提交当前未收盘K线，未收盘K线由截止时间前已完成的 1m K线聚合并标记 `is_partial=true`。
 - 自定义 system prompt 和用户说明。
-- 支持 OpenAI-compatible `/chat/completions` API。
+- 支持 OpenAI-compatible `/chat/completions` API，常见如 DeepSeek、GLM、Kimi 等兼容接口都可接入。
 - 支持多模型并发请求。
 - 本地归档请求 payload、LLM 返回和元信息。
 - 可从 Binance USD-M Futures API 更新 ETHUSDT 1m K线并重建多周期数据。
