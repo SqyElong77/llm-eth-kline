@@ -192,16 +192,29 @@ def audit(df: pd.DataFrame) -> dict[str, Any]:
 def update_clean(symbol: str, clean_root: Path, target_utc: datetime | None) -> dict[str, Any]:
     clean_root.mkdir(parents=True, exist_ok=True)
     path_1m = clean_root / f"{symbol.upper()}-1m-clean.csv.gz"
-    if not path_1m.exists():
-        raise FileNotFoundError(f"缺少 1m clean 文件: {path_1m}")
-    current = read_clean_1m(path_1m)
-    last_open = current.index.max().to_pydatetime()
     target_open = target_utc or latest_closed_open_time()
     target_open = floor_minute(target_open)
     if target_open > datetime.now(timezone.utc):
         raise ValueError("目标时间不能超过当前时间")
+    bootstrap_days = int(os.environ.get("LLM_KLINE_BOOTSTRAP_DAYS", "365"))
+    bootstrap_days = max(1, min(bootstrap_days, 1825))
+    current = None
+    last_open = None
+    if path_1m.exists():
+        current = read_clean_1m(path_1m)
+        last_open = current.index.max().to_pydatetime()
+    last_open_before = last_open
     fetched_rows: list[list[Any]] = []
-    if target_open > last_open:
+    if current is None:
+        start_open = floor_minute(target_open - timedelta(days=bootstrap_days))
+        start_ms = int(start_open.timestamp() * 1000)
+        end_ms = int(target_open.timestamp() * 1000)
+        fetched_rows = fetch_binance_1m(symbol, start_ms, end_ms)
+        if not fetched_rows:
+            raise RuntimeError("Binance 未返回任何 1m 数据，无法初始化 clean 数据目录")
+        clean = fetched_to_df(fetched_rows)
+        last_open = clean.index.max().to_pydatetime()
+    elif target_open > last_open:
         start_ms = int((last_open + timedelta(minutes=1)).timestamp() * 1000)
         end_ms = int(target_open.timestamp() * 1000)
         fetched_rows = fetch_binance_1m(symbol, start_ms, end_ms)
@@ -242,11 +255,12 @@ def update_clean(symbol: str, clean_root: Path, target_utc: datetime | None) -> 
     return {
         "symbol": symbol.upper(),
         "clean_root": str(clean_root),
-        "last_open_before_utc": last_open.isoformat(timespec="seconds"),
+        "last_open_before_utc": last_open_before.isoformat(timespec="seconds") if last_open_before else None,
         "target_open_utc": target_open.isoformat(timespec="seconds"),
         "fetched_1m_rows": len(fetched_rows),
         "report": report,
         "generated_files": generated,
+        "bootstrap_days": bootstrap_days if current is None else 0,
     }
 
 

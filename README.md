@@ -49,6 +49,9 @@ data/clean/ethusdt_perp
 python3 scripts/update_ethusdt_clean_klines.py --symbol ETHUSDT
 ```
 
+如果本地还没有 `data/clean/ethusdt_perp/ETHUSDT-1m-clean.csv.gz`，首次更新会自动从 Binance 拉取最近一段 1m 数据作为初始底座。
+默认初始化最近 365 天，可用 `LLM_KLINE_BOOTSTRAP_DAYS` 调整，最大 1825 天。
+
 也可以用环境变量指定已有数据目录：
 
 ```bash
