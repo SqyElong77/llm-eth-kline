@@ -54,6 +54,14 @@ python3 scripts/update_ethusdt_clean_klines.py --symbol ETHUSDT
 
 如果更新时报 `WinError 10013`、timeout 或连接失败，通常是本机网络、防火墙、代理或地区网络策略阻止访问 Binance Futures API。可以配置代理：
 
+最简单的方式是在页面展开“**K线下载网络设置**”，在代理输入框填写本机代理地址，例如：
+
+```text
+http://127.0.0.1:7890
+```
+
+也可以在命令行配置代理：
+
 ```powershell
 $env:HTTPS_PROXY="http://127.0.0.1:7890"
 $env:HTTP_PROXY="http://127.0.0.1:7890"

@@ -546,6 +546,22 @@ INDEX_HTML = r"""<!doctype html>
         </label>
         <div class="hint">勾选后会用截止时间前已完成的1分钟线临时聚合当前周期K线，并标记 is_partial=true。</div>
         <div id="windowRows" style="margin-top:10px"></div>
+        <details style="margin:8px 0 10px">
+          <summary>K线下载网络设置</summary>
+          <div class="grid-2" style="margin-top:10px">
+            <div>
+              <label for="klineProxy">HTTP/HTTPS 代理，可选</label>
+              <input id="klineProxy" autocomplete="off" placeholder="例如 http://127.0.0.1:7890" />
+            </div>
+            <div>
+              <label for="bootstrapDays">首次初始化天数</label>
+              <input id="bootstrapDays" type="number" min="1" max="1825" value="365" />
+            </div>
+          </div>
+          <label for="binanceFapiBases" style="margin-top:10px">Binance Futures API 地址，可选</label>
+          <input id="binanceFapiBases" autocomplete="off" placeholder="多个地址用逗号分隔；留空使用默认 fapi/fapi1/fapi2/fapi3/fapi4" />
+          <div class="hint">如果 Windows 报 WinError 10013，通常需要在这里填写本机代理地址，或者放行 Python 访问网络。</div>
+        </details>
         <div class="actions">
           <button id="addWindowBtn">增加周期</button>
           <button id="previewBtn" class="secondary">预览 payload</button>
@@ -728,6 +744,9 @@ INDEX_HTML = r"""<!doctype html>
         extra_headers: $("extraHeaders").value,
         include_klines: $("includeKlines").checked,
         include_partial_kline: $("includePartialKline").checked,
+        kline_proxy: $("klineProxy").value.trim(),
+        binance_fapi_bases: $("binanceFapiBases").value.trim(),
+        bootstrap_days: Number($("bootstrapDays").value || 365),
         multi_model_enabled: $("multiModelEnabled").checked,
         multi_model_ids: collectSelectedMultiModelIds(),
       };
@@ -745,6 +764,9 @@ INDEX_HTML = r"""<!doctype html>
       if (settings.extra_headers) $("extraHeaders").value = settings.extra_headers;
       if (typeof settings.include_klines === "boolean") $("includeKlines").checked = settings.include_klines;
       if (typeof settings.include_partial_kline === "boolean") $("includePartialKline").checked = settings.include_partial_kline;
+      if (settings.kline_proxy) $("klineProxy").value = settings.kline_proxy;
+      if (settings.binance_fapi_bases) $("binanceFapiBases").value = settings.binance_fapi_bases;
+      if (settings.bootstrap_days) $("bootstrapDays").value = settings.bootstrap_days;
       if (typeof settings.multi_model_enabled === "boolean") $("multiModelEnabled").checked = settings.multi_model_enabled;
     }
     function getSavedModels() {
@@ -1113,6 +1135,9 @@ INDEX_HTML = r"""<!doctype html>
         cf_access_client_id: $("cfAccessClientId").value.trim(),
         cf_access_client_secret: $("cfAccessClientSecret").value,
         extra_headers: $("extraHeaders").value,
+        proxy: $("klineProxy").value.trim(),
+        binance_fapi_bases: $("binanceFapiBases").value.trim(),
+        bootstrap_days: Number($("bootstrapDays").value || 365),
         multi_model_enabled: $("multiModelEnabled").checked,
         model_profiles: collectSelectedModelProfiles(),
       };
@@ -1215,7 +1240,13 @@ INDEX_HTML = r"""<!doctype html>
       setStatus("updateStatus", "更新中，会拉取 Binance 最新1m并重建所有周期...");
       $("updateKlinesBtn").disabled = true;
       try {
-        const data = await api("/api/update-klines", {symbol: $("symbol").value.trim() || "ETHUSDT"});
+        saveSettings(true);
+        const data = await api("/api/update-klines", {
+          symbol: $("symbol").value.trim() || "ETHUSDT",
+          proxy: $("klineProxy").value.trim(),
+          binance_fapi_bases: $("binanceFapiBases").value.trim(),
+          bootstrap_days: Number($("bootstrapDays").value || 365),
+        });
         const r = data.result || {};
         const report = r.report || {};
         setStatus("updateStatus", `更新完成：新增 ${r.fetched_1m_rows || 0} 根1m，最新 ${report.end_bjt || ""}，状态 ${report.status || ""}`, "good");
@@ -1362,6 +1393,9 @@ INDEX_HTML = r"""<!doctype html>
     $("includeKlines").addEventListener("change", () => saveSettings(true));
     $("includePartialKline").addEventListener("change", () => saveSettings(true));
     $("multiModelEnabled").addEventListener("change", () => saveSettings(true));
+    for (const id of ["klineProxy", "binanceFapiBases", "bootstrapDays"]) {
+      $(id).addEventListener("input", () => saveSettings(true));
+    }
     $("cutoffBjt").value = nowSystemLocalInput();
     loadSettings();
     renderSavedModels();
@@ -2425,10 +2459,22 @@ def call_multi_llm(data: dict[str, Any], payload: dict[str, Any], request_for_ll
     }
 
 
-def update_klines(symbol: str) -> dict[str, Any]:
+def update_klines(symbol: str, proxy: str = "", binance_fapi_bases: str = "", bootstrap_days: int | None = None) -> dict[str, Any]:
     python = BUNDLED_PYTHON if BUNDLED_PYTHON.exists() else Path(sys.executable)
     if not UPDATE_SCRIPT.exists():
         raise FileNotFoundError(str(UPDATE_SCRIPT))
+    env = os.environ.copy()
+    proxy = (proxy or "").strip()
+    if proxy:
+        env["HTTP_PROXY"] = proxy
+        env["HTTPS_PROXY"] = proxy
+        env["http_proxy"] = proxy
+        env["https_proxy"] = proxy
+    binance_fapi_bases = (binance_fapi_bases or "").strip()
+    if binance_fapi_bases:
+        env["LLM_KLINE_BINANCE_FAPI_BASES"] = binance_fapi_bases
+    if bootstrap_days:
+        env["LLM_KLINE_BOOTSTRAP_DAYS"] = str(max(1, min(int(bootstrap_days), 1825)))
     cmd = [
         str(python),
         str(UPDATE_SCRIPT),
@@ -2437,9 +2483,15 @@ def update_klines(symbol: str) -> dict[str, Any]:
         "--clean-root",
         str(CLEAN_ROOT),
     ]
-    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=600)
+    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=600, env=env)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
+        if "WinError 10013" in detail:
+            raise RuntimeError(
+                "K线更新失败：Windows 拒绝 Python 访问 Binance。"
+                "请在“K线下载网络设置”里填写本机代理，例如 http://127.0.0.1:7890，"
+                "或在 Windows 防火墙/杀毒软件中放行 python.exe 后重试。"
+            )
         raise RuntimeError(f"K线更新失败: {detail[-2000:]}")
     text = proc.stdout.strip()
     match = re.search(r"\{.*\}\s*$", text, flags=re.S)
@@ -2450,7 +2502,13 @@ def update_klines(symbol: str) -> dict[str, Any]:
     return result
 
 
-def ensure_klines_fresh_for_cutoff(symbol: str, cutoff: datetime) -> dict[str, Any]:
+def ensure_klines_fresh_for_cutoff(
+    symbol: str,
+    cutoff: datetime,
+    proxy: str = "",
+    binance_fapi_bases: str = "",
+    bootstrap_days: int | None = None,
+) -> dict[str, Any]:
     symbol = symbol.upper()
     latest_open = STORE.latest_source_open(symbol)
     latest_complete = latest_open + timedelta(minutes=1) if latest_open else None
@@ -2462,7 +2520,7 @@ def ensure_klines_fresh_for_cutoff(symbol: str, cutoff: datetime) -> dict[str, A
             "latest_complete_utc": latest_complete.isoformat(timespec="seconds"),
             "cutoff_utc": cutoff.isoformat(timespec="seconds"),
         }
-    result = update_klines(symbol)
+    result = update_klines(symbol, proxy=proxy, binance_fapi_bases=binance_fapi_bases, bootstrap_days=bootstrap_days)
     latest_open_after = STORE.latest_source_open(symbol)
     latest_complete_after = latest_open_after + timedelta(minutes=1) if latest_open_after else None
     return {
@@ -2674,6 +2732,9 @@ class Handler(BaseHTTPRequestHandler):
                 refresh_meta = ensure_klines_fresh_for_cutoff(
                     str(data.get("symbol") or "ETHUSDT"),
                     cutoff_from_request(data),
+                    proxy=str(data.get("proxy") or ""),
+                    binance_fapi_bases=str(data.get("binance_fapi_bases") or ""),
+                    bootstrap_days=int(data.get("bootstrap_days") or 365),
                 )
                 payload, request_for_llm, meta = build_payload(data)
                 answer, llm_meta, archived_body = call_llm(data, request_for_llm)
@@ -2690,13 +2751,21 @@ class Handler(BaseHTTPRequestHandler):
                 refresh_meta = ensure_klines_fresh_for_cutoff(
                     str(data.get("symbol") or "ETHUSDT"),
                     cutoff_from_request(data),
+                    proxy=str(data.get("proxy") or ""),
+                    binance_fapi_bases=str(data.get("binance_fapi_bases") or ""),
+                    bootstrap_days=int(data.get("bootstrap_days") or 365),
                 )
                 payload, request_for_llm, meta = build_payload(data)
                 meta = {**meta, "auto_kline_refresh": refresh_meta}
                 self.send_json(call_multi_llm(data, payload, request_for_llm, meta))
                 return
             if self.path == "/api/update-klines":
-                result = update_klines(str(data.get("symbol") or "ETHUSDT"))
+                result = update_klines(
+                    str(data.get("symbol") or "ETHUSDT"),
+                    proxy=str(data.get("proxy") or ""),
+                    binance_fapi_bases=str(data.get("binance_fapi_bases") or ""),
+                    bootstrap_days=int(data.get("bootstrap_days") or 365),
+                )
                 self.send_json({"result": result, "timeframes": list(TIMEFRAMES), "available_timeframes": STORE.available_timeframes()})
                 return
             json_error(self, HTTPStatus.NOT_FOUND, "not found")
