@@ -2597,7 +2597,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         try:
             if self.path in {"/", "/index.html"}:
-                tf_options = [{"value": tf, "label": f"{TIMEFRAME_LABELS.get(tf, tf)} ({tf})"} for tf in STORE.available_timeframes()]
+                tf_options = [{"value": tf, "label": f"{TIMEFRAME_LABELS.get(tf, tf)} ({tf})"} for tf in TIMEFRAMES]
                 page = (
                     INDEX_HTML.replace("__DEFAULT_BASE_URL__", html.escape(DEFAULT_BASE_URL))
                     .replace("__DEFAULT_MODEL__", html.escape(DEFAULT_MODEL))
@@ -2631,7 +2631,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"record": read_record(record_id)})
                 return
             if self.path == "/api/config":
-                self.send_json({"timeframes": STORE.available_timeframes(), "clean_root": str(CLEAN_ROOT)})
+                self.send_json({"timeframes": list(TIMEFRAMES), "available_timeframes": STORE.available_timeframes(), "clean_root": str(CLEAN_ROOT)})
                 return
             json_error(self, HTTPStatus.NOT_FOUND, "not found")
         except FileNotFoundError as exc:
@@ -2680,7 +2680,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/update-klines":
                 result = update_klines(str(data.get("symbol") or "ETHUSDT"))
-                self.send_json({"result": result, "timeframes": STORE.available_timeframes()})
+                self.send_json({"result": result, "timeframes": list(TIMEFRAMES), "available_timeframes": STORE.available_timeframes()})
                 return
             json_error(self, HTTPStatus.NOT_FOUND, "not found")
         except urllib.error.HTTPError as exc:
