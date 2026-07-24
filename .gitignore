@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.pid
+
+data/
+logs/
+backtest_outputs/
+*.csv
+*.csv.gz
+*.jsonl
+*.sqlite
+*.db
