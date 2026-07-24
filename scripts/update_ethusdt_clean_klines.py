@@ -21,7 +21,13 @@ import pandas as pd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CLEAN_ROOT = Path(os.environ.get("LLM_KLINE_CLEAN_ROOT", str(ROOT / "data" / "clean" / "ethusdt_perp")))
-BINANCE_FAPI = "https://fapi.binance.com"
+DEFAULT_BINANCE_FAPI_BASES = (
+    "https://fapi.binance.com",
+    "https://fapi1.binance.com",
+    "https://fapi2.binance.com",
+    "https://fapi3.binance.com",
+    "https://fapi4.binance.com",
+)
 TZ_BJT = "Asia/Shanghai"
 
 TIMEFRAMES = {
@@ -41,6 +47,15 @@ TIMEFRAMES = {
 }
 
 TAIL_1M_ROWS = 30_000
+
+
+def binance_fapi_bases() -> list[str]:
+    raw = os.environ.get("LLM_KLINE_BINANCE_FAPI_BASES") or os.environ.get("LLM_KLINE_BINANCE_FAPI_BASE") or ""
+    if raw.strip():
+        bases = [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+        if bases:
+            return bases
+    return list(DEFAULT_BINANCE_FAPI_BASES)
 
 
 def parse_bjt(value: str) -> datetime:
@@ -67,6 +82,7 @@ def iso_bjt_index(index: pd.DatetimeIndex) -> pd.Index:
 def fetch_binance_1m(symbol: str, start_ms: int, end_ms: int) -> list[list[Any]]:
     rows: list[list[Any]] = []
     cursor = start_ms
+    bases = binance_fapi_bases()
     while cursor <= end_ms:
         query = urllib.parse.urlencode(
             {
@@ -77,18 +93,28 @@ def fetch_binance_1m(symbol: str, start_ms: int, end_ms: int) -> list[list[Any]]
                 "limit": 1500,
             }
         )
-        url = f"{BINANCE_FAPI}/fapi/v1/klines?{query}"
-        last_error: Exception | None = None
+        batch = None
+        recent_errors: list[str] = []
         for attempt in range(1, 6):
-            try:
-                with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
-                    batch = json.loads(resp.read().decode("utf-8"))
+            for base in bases:
+                url = f"{base}/fapi/v1/klines?{query}"
+                try:
+                    with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
+                        batch = json.loads(resp.read().decode("utf-8"))
+                    break
+                except Exception as exc:
+                    recent_errors.append(f"{base}: {type(exc).__name__}: {exc}")
+            if batch is not None:
                 break
-            except Exception as exc:
-                last_error = exc
-                time.sleep(min(10.0, attempt * 1.5))
+            time.sleep(min(10.0, attempt * 1.5))
         else:
-            raise RuntimeError(f"Binance K线下载失败 cursor={cursor}: {last_error}")
+            error_tail = " | ".join(recent_errors[-8:])
+            raise RuntimeError(
+                "Binance K线下载失败。"
+                f"cursor={cursor}; 已尝试 endpoints={bases}; 最近错误={error_tail}. "
+                "如果你在 Windows 上看到 WinError 10013，通常是防火墙、代理、杀毒软件、公司网络或地区网络策略阻止访问。"
+                "请配置 HTTPS_PROXY/HTTP_PROXY，或用 LLM_KLINE_BINANCE_FAPI_BASES 指定可访问的 Binance USD-M Futures API 地址。"
+            )
         if not batch:
             break
         max_ms = cursor

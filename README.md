@@ -52,6 +52,21 @@ python3 scripts/update_ethusdt_clean_klines.py --symbol ETHUSDT
 如果本地还没有 `data/clean/ethusdt_perp/ETHUSDT-1m-clean.csv.gz`，首次更新会自动从 Binance 拉取最近一段 1m 数据作为初始底座。
 默认初始化最近 365 天，可用 `LLM_KLINE_BOOTSTRAP_DAYS` 调整，最大 1825 天。
 
+如果更新时报 `WinError 10013`、timeout 或连接失败，通常是本机网络、防火墙、代理或地区网络策略阻止访问 Binance Futures API。可以配置代理：
+
+```powershell
+$env:HTTPS_PROXY="http://127.0.0.1:7890"
+$env:HTTP_PROXY="http://127.0.0.1:7890"
+python scripts/update_ethusdt_clean_klines.py --symbol ETHUSDT
+```
+
+也可以指定可访问的 Binance USD-M Futures API 地址，多个地址用逗号分隔：
+
+```powershell
+$env:LLM_KLINE_BINANCE_FAPI_BASES="https://fapi.binance.com,https://fapi1.binance.com,https://fapi2.binance.com"
+python scripts/update_ethusdt_clean_klines.py --symbol ETHUSDT
+```
+
 也可以用环境变量指定已有数据目录：
 
 ```bash
