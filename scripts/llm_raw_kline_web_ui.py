@@ -647,7 +647,24 @@ INDEX_HTML = r"""<!doctype html>
   </main>
 
   <script>
-    const TF_OPTIONS = __TIMEFRAME_OPTIONS__;
+    const FALLBACK_TF_OPTIONS = [
+      { value: "1m", label: "1分钟 (1m)" },
+      { value: "5m", label: "5分钟 (5m)" },
+      { value: "15m", label: "15分钟 (15m)" },
+      { value: "30m", label: "30分钟 (30m)" },
+      { value: "1h", label: "1小时 (1h)" },
+      { value: "2h", label: "2小时 (2h)" },
+      { value: "4h", label: "4小时 (4h)" },
+      { value: "6h", label: "6小时 (6h)" },
+      { value: "8h", label: "8小时 (8h)" },
+      { value: "12h", label: "12小时 (12h)" },
+      { value: "1d", label: "日线 (1d)" },
+      { value: "3d", label: "3日线 (3d)" },
+      { value: "1w", label: "周线 (1w)" },
+      { value: "1mo", label: "月线 (1mo)" },
+    ];
+    const SERVER_TF_OPTIONS = __TIMEFRAME_OPTIONS__;
+    const TF_OPTIONS = Array.isArray(SERVER_TF_OPTIONS) && SERVER_TF_OPTIONS.length ? SERVER_TF_OPTIONS : FALLBACK_TF_OPTIONS;
     let activeTab = "answer";
     let lastPreview = null;
     let probedModels = [];
